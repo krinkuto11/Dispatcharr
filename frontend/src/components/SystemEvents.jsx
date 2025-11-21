@@ -19,11 +19,16 @@ import {
   Gauge,
   HardDriveDownload,
   List,
+  LogIn,
+  LogOut,
   RefreshCw,
+  Shield,
+  ShieldAlert,
   SquareX,
   Timer,
   Users,
   Video,
+  XCircle,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import API from '../api';
@@ -108,6 +113,16 @@ const SystemEvents = () => {
         return <RefreshCw size={16} />;
       case 'epg_download':
         return <Download size={16} />;
+      case 'login_success':
+        return <LogIn size={16} />;
+      case 'login_failed':
+        return <ShieldAlert size={16} />;
+      case 'logout':
+        return <LogOut size={16} />;
+      case 'm3u_blocked':
+        return <XCircle size={16} />;
+      case 'epg_blocked':
+        return <XCircle size={16} />;
       default:
         return <Gauge size={16} />;
     }
@@ -118,12 +133,14 @@ const SystemEvents = () => {
       case 'channel_start':
       case 'client_connect':
       case 'recording_start':
+      case 'login_success':
         return 'green';
       case 'channel_reconnect':
         return 'yellow';
       case 'channel_stop':
       case 'client_disconnect':
       case 'recording_end':
+      case 'logout':
         return 'gray';
       case 'channel_buffering':
         return 'yellow';
@@ -138,6 +155,10 @@ const SystemEvents = () => {
       case 'm3u_download':
       case 'epg_download':
         return 'teal';
+      case 'login_failed':
+      case 'm3u_blocked':
+      case 'epg_blocked':
+        return 'red';
       default:
         return 'gray';
     }

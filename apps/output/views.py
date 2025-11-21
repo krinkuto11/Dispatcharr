@@ -53,6 +53,17 @@ def get_client_identifier(request):
 def m3u_endpoint(request, profile_name=None, user=None):
     logger.debug("m3u_endpoint called: method=%s, profile=%s", request.method, profile_name)
     if not network_access_allowed(request, "M3U_EPG"):
+        # Log blocked M3U download
+        from core.utils import log_system_event
+        client_ip = request.META.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'unknown')
+        log_system_event(
+            event_type='m3u_blocked',
+            profile=profile_name or 'all',
+            reason='Network access denied',
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
         return JsonResponse({"error": "Forbidden"}, status=403)
 
     # Handle HEAD requests efficiently without generating content
@@ -67,6 +78,17 @@ def m3u_endpoint(request, profile_name=None, user=None):
 def epg_endpoint(request, profile_name=None, user=None):
     logger.debug("epg_endpoint called: method=%s, profile=%s", request.method, profile_name)
     if not network_access_allowed(request, "M3U_EPG"):
+        # Log blocked EPG download
+        from core.utils import log_system_event
+        client_ip = request.META.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'unknown')
+        log_system_event(
+            event_type='epg_blocked',
+            profile=profile_name or 'all',
+            reason='Network access denied',
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
         return JsonResponse({"error": "Forbidden"}, status=403)
 
     # Handle HEAD requests efficiently without generating content
@@ -642,28 +664,39 @@ def generate_custom_dummy_programs(channel_id, channel_name, now, num_days, cust
             try:
                 # Support various date group names: month, day, year
                 month_str = date_groups.get('month', '')
-                day = int(date_groups.get('day', 1))
-                year = int(date_groups.get('year', now.year))  # Default to current year if not provided
+                day_str = date_groups.get('day', '')
+                year_str = date_groups.get('year', '')
+
+                # Parse day - default to current day if empty or invalid
+                day = int(day_str) if day_str else now.day
+
+                # Parse year - default to current year if empty or invalid (matches frontend behavior)
+                year = int(year_str) if year_str else now.year
 
                 # Parse month - can be numeric (1-12) or text (Jan, January, etc.)
                 month = None
-                if month_str.isdigit():
-                    month = int(month_str)
-                else:
-                    # Try to parse text month names
-                    import calendar
-                    month_str_lower = month_str.lower()
-                    # Check full month names
-                    for i, month_name in enumerate(calendar.month_name):
-                        if month_name.lower() == month_str_lower:
-                            month = i
-                            break
-                    # Check abbreviated month names if not found
-                    if month is None:
-                        for i, month_abbr in enumerate(calendar.month_abbr):
-                            if month_abbr.lower() == month_str_lower:
+                if month_str:
+                    if month_str.isdigit():
+                        month = int(month_str)
+                    else:
+                        # Try to parse text month names
+                        import calendar
+                        month_str_lower = month_str.lower()
+                        # Check full month names
+                        for i, month_name in enumerate(calendar.month_name):
+                            if month_name.lower() == month_str_lower:
                                 month = i
                                 break
+                        # Check abbreviated month names if not found
+                        if month is None:
+                            for i, month_abbr in enumerate(calendar.month_abbr):
+                                if month_abbr.lower() == month_str_lower:
+                                    month = i
+                                    break
+
+                # Default to current month if not extracted or invalid
+                if month is None:
+                    month = now.month
 
                 if month and 1 <= month <= 12 and 1 <= day <= 31:
                     date_info = {'year': year, 'month': month, 'day': day}
@@ -1941,7 +1974,9 @@ def xc_player_api(request, full=False):
         else:
             return JsonResponse([], safe=False)
 
-    raise Http404()
+    # For any other action (including get_account_info or unknown actions),
+    # return server_info/account_info to match provider behavior
+    return JsonResponse(server_info)
 
 
 def xc_panel_api(request):
@@ -1958,12 +1993,34 @@ def xc_panel_api(request):
 
 def xc_get(request):
     if not network_access_allowed(request, 'XC_API'):
+        # Log blocked M3U download
+        from core.utils import log_system_event
+        client_ip = request.META.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'unknown')
+        log_system_event(
+            event_type='m3u_blocked',
+            user=request.GET.get('username', 'unknown'),
+            reason='Network access denied (XC API)',
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
         return JsonResponse({'error': 'Forbidden'}, status=403)
 
     action = request.GET.get("action")
     user = xc_get_user(request)
 
     if user is None:
+        # Log blocked M3U download due to invalid credentials
+        from core.utils import log_system_event
+        client_ip = request.META.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'unknown')
+        log_system_event(
+            event_type='m3u_blocked',
+            user=request.GET.get('username', 'unknown'),
+            reason='Invalid XC credentials',
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
         return JsonResponse({'error': 'Unauthorized'}, status=401)
 
     return generate_m3u(request, None, user)
@@ -1971,11 +2028,33 @@ def xc_get(request):
 
 def xc_xmltv(request):
     if not network_access_allowed(request, 'XC_API'):
+        # Log blocked EPG download
+        from core.utils import log_system_event
+        client_ip = request.META.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'unknown')
+        log_system_event(
+            event_type='epg_blocked',
+            user=request.GET.get('username', 'unknown'),
+            reason='Network access denied (XC API)',
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
         return JsonResponse({'error': 'Forbidden'}, status=403)
 
     user = xc_get_user(request)
 
     if user is None:
+        # Log blocked EPG download due to invalid credentials
+        from core.utils import log_system_event
+        client_ip = request.META.get('REMOTE_ADDR', 'unknown')
+        user_agent = request.META.get('HTTP_USER_AGENT', 'unknown')
+        log_system_event(
+            event_type='epg_blocked',
+            user=request.GET.get('username', 'unknown'),
+            reason='Invalid XC credentials',
+            client_ip=client_ip,
+            user_agent=user_agent,
+        )
         return JsonResponse({'error': 'Unauthorized'}, status=401)
 
     return generate_epg(request, None, user)

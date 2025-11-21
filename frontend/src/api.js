@@ -170,7 +170,7 @@ export default class API {
 
   static async logout() {
     return await request(`${host}/api/accounts/auth/logout/`, {
-      auth: false,
+      auth: true,  // Send JWT token so backend can identify the user
       method: 'POST',
     });
   }

@@ -398,6 +398,11 @@ class SystemEvent(models.Model):
         ('m3u_download', 'M3U Downloaded'),
         ('epg_refresh', 'EPG Refreshed'),
         ('epg_download', 'EPG Downloaded'),
+        ('login_success', 'Login Successful'),
+        ('login_failed', 'Login Failed'),
+        ('logout', 'User Logged Out'),
+        ('m3u_blocked', 'M3U Download Blocked'),
+        ('epg_blocked', 'EPG Download Blocked'),
     ]
 
     event_type = models.CharField(max_length=50, choices=EVENT_TYPES, db_index=True)
