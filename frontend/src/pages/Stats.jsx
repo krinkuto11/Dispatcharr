@@ -288,13 +288,13 @@ const VODCard = ({ vodContent }) => {
       padding="md"
       radius="md"
       withBorder
-      style={{
-        color: '#fff',
-        backgroundColor: '#27272A',
-        maxWidth: '700px',
-        width: '100%',
-      }}
-    >
+        style={{
+          color: '#fff',
+          backgroundColor: '#27272A',
+          maxWidth: '760px',
+          width: '100%',
+        }}
+      >
       <Stack style={{ position: 'relative' }}>
         {/* Header with poster and basic info */}
         <Group justify="space-between">
@@ -302,7 +302,7 @@ const VODCard = ({ vodContent }) => {
             style={{
               //width: '150px',
               height: '100px',
-              display: 'flex',
+              maxWidth: '760px',
               alignItems: 'center',
               justifyContent: 'center',
             }}
@@ -864,6 +864,44 @@ const ChannelCard = ({
         header: 'IP Address',
         accessorKey: 'ip_address',
       },
+      {
+        header: 'User',
+        id: 'user',
+        accessorFn: (row) => {
+          // Show username if XC API access
+          if (row.username) {
+            return row.username;
+          }
+          // Show access type (M3U or HDHR)
+          if (row.access_type) {
+            return row.access_type;
+          }
+          // Default
+          return 'Unknown';
+        },
+        cell: ({ cell, row }) => {
+          const value = cell.getValue();
+          const isXC = row.original.access_type === 'XC';
+          const isHDHR = row.original.access_type === 'HDHR';
+          const isM3U = row.original.access_type === 'M3U';
+          
+          return (
+            <Tooltip
+              label={
+                isXC
+                  ? `XC API User: ${value}`
+                  : isHDHR
+                    ? 'HDHomeRun Access'
+                    : isM3U
+                      ? 'M3U Playlist Access'
+                      : 'Unknown Access Type'
+              }
+            >
+              <Text size="xs">{value}</Text>
+            </Tooltip>
+          );
+        },
+      },
       // Updated Connected column with tooltip
       {
         id: 'connected',
@@ -956,6 +994,7 @@ const ChannelCard = ({
     }),
     headerCellRenderFns: {
       ip_address: renderHeaderCell,
+      user: renderHeaderCell,
       connected: renderHeaderCell,
       duration: renderHeaderCell,
       actions: renderHeaderCell,
@@ -1263,7 +1302,11 @@ const ChannelCard = ({
           </Group>
         </Group>
 
-        <CustomTable table={channelClientsTable} />
+        <Box style={{ width: '100%', overflowX: 'auto', display: 'flex', justifyContent: 'center' }}>
+          <Box style={{ width: '100%' }}>
+            <CustomTable table={channelClientsTable} />
+          </Box>
+        </Box>
       </Stack>
     </Card>
   );
