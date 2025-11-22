@@ -1936,47 +1936,31 @@ def xc_player_api(request, full=False):
     if user is None:
         return JsonResponse({'error': 'Unauthorized'}, status=401)
 
-    server_info = xc_get_info(request)
-
-    if not action:
-        return JsonResponse(server_info)
-
     if action == "get_live_categories":
         return JsonResponse(xc_get_live_categories(user), safe=False)
-    if action == "get_live_streams":
+    elif action == "get_live_streams":
         return JsonResponse(xc_get_live_streams(request, user, request.GET.get("category_id")), safe=False)
-    if action == "get_short_epg":
+    elif action == "get_short_epg":
         return JsonResponse(xc_get_epg(request, user, short=True), safe=False)
-    if action == "get_simple_data_table":
+    elif action == "get_simple_data_table":
         return JsonResponse(xc_get_epg(request, user, short=False), safe=False)
-
-    # Endpoints not implemented, but still provide a response
-    if action in [
-        "get_vod_categories",
-        "get_vod_streams",
-        "get_series",
-        "get_series_categories",
-        "get_series_info",
-        "get_vod_info",
-    ]:
-        if action == "get_vod_categories":
-            return JsonResponse(xc_get_vod_categories(user), safe=False)
-        elif action == "get_vod_streams":
-            return JsonResponse(xc_get_vod_streams(request, user, request.GET.get("category_id")), safe=False)
-        elif action == "get_series_categories":
-            return JsonResponse(xc_get_series_categories(user), safe=False)
-        elif action == "get_series":
-            return JsonResponse(xc_get_series(request, user, request.GET.get("category_id")), safe=False)
-        elif action == "get_series_info":
-            return JsonResponse(xc_get_series_info(request, user, request.GET.get("series_id")), safe=False)
-        elif action == "get_vod_info":
-            return JsonResponse(xc_get_vod_info(request, user, request.GET.get("vod_id")), safe=False)
-        else:
-            return JsonResponse([], safe=False)
-
-    # For any other action (including get_account_info or unknown actions),
-    # return server_info/account_info to match provider behavior
-    return JsonResponse(server_info)
+    elif action == "get_vod_categories":
+        return JsonResponse(xc_get_vod_categories(user), safe=False)
+    elif action == "get_vod_streams":
+        return JsonResponse(xc_get_vod_streams(request, user, request.GET.get("category_id")), safe=False)
+    elif action == "get_series_categories":
+        return JsonResponse(xc_get_series_categories(user), safe=False)
+    elif action == "get_series":
+        return JsonResponse(xc_get_series(request, user, request.GET.get("category_id")), safe=False)
+    elif action == "get_series_info":
+        return JsonResponse(xc_get_series_info(request, user, request.GET.get("series_id")), safe=False)
+    elif action == "get_vod_info":
+        return JsonResponse(xc_get_vod_info(request, user, request.GET.get("vod_id")), safe=False)
+    else:
+        # For any other action (including get_account_info or unknown actions),
+        # return server_info/account_info to match provider behavior
+        server_info = xc_get_info(request)
+        return JsonResponse(server_info, safe=False)
 
 
 def xc_panel_api(request):

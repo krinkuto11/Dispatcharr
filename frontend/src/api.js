@@ -1053,7 +1053,19 @@ export default class API {
   }
 
   static async updateEPG(values, isToggle = false) {
+    // Validate that values is an object
+    if (!values || typeof values !== 'object') {
+      console.error('updateEPG called with invalid values:', values);
+      return;
+    }
+
     const { id, ...payload } = values;
+
+    // Validate that we have an ID and payload is an object
+    if (!id || typeof payload !== 'object') {
+      console.error('updateEPG: invalid id or payload', { id, payload });
+      return;
+    }
 
     try {
       // If this is just toggling the active state, make a simpler request
