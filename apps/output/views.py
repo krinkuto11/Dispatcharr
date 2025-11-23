@@ -1319,16 +1319,45 @@ def generate_epg(request, profile_name=None, user=None):
         now = django_timezone.now()
         cutoff_date = now + timedelta(days=num_days) if num_days > 0 else None
 
+        # Build collision-free channel number mapping for XC clients (if user is authenticated)
+        # XC clients require integer channel numbers, so we need to ensure no conflicts
+        channel_num_map = {}
+        if user is not None:
+            # This is an XC client - build collision-free mapping
+            used_numbers = set()
+
+            # First pass: assign integers for channels that already have integer numbers
+            for channel in channels:
+                if channel.channel_number == int(channel.channel_number):
+                    num = int(channel.channel_number)
+                    channel_num_map[channel.id] = num
+                    used_numbers.add(num)
+
+            # Second pass: assign integers for channels with float numbers
+            for channel in channels:
+                if channel.channel_number != int(channel.channel_number):
+                    candidate = int(channel.channel_number)
+                    while candidate in used_numbers:
+                        candidate += 1
+                    channel_num_map[channel.id] = candidate
+                    used_numbers.add(candidate)
+
         # Process channels for the <channel> section
         for channel in channels:
-            # Format channel number as integer if it has no decimal component - same as M3U generation
-            if channel.channel_number is not None:
-                if channel.channel_number == int(channel.channel_number):
-                    formatted_channel_number = int(channel.channel_number)
-                else:
-                    formatted_channel_number = channel.channel_number
+            # For XC clients (user is not None), use collision-free integer mapping
+            # For regular clients (user is None), use original formatting logic
+            if user is not None:
+                # XC client - use collision-free integer
+                formatted_channel_number = channel_num_map[channel.id]
             else:
-                formatted_channel_number = ""
+                # Regular client - format channel number as integer if it has no decimal component
+                if channel.channel_number is not None:
+                    if channel.channel_number == int(channel.channel_number):
+                        formatted_channel_number = int(channel.channel_number)
+                    else:
+                        formatted_channel_number = channel.channel_number
+                else:
+                    formatted_channel_number = ""
 
             # Determine the channel ID based on the selected source
             if tvg_id_source == 'tvg_id' and channel.tvg_id:
@@ -1428,14 +1457,20 @@ def generate_epg(request, profile_name=None, user=None):
             elif tvg_id_source == 'gracenote' and channel.tvc_guide_stationid:
                 channel_id = channel.tvc_guide_stationid
             else:
-                # Get formatted channel number
-                if channel.channel_number is not None:
-                    if channel.channel_number == int(channel.channel_number):
-                        formatted_channel_number = int(channel.channel_number)
-                    else:
-                        formatted_channel_number = channel.channel_number
+                # For XC clients (user is not None), use collision-free integer mapping
+                # For regular clients (user is None), use original formatting logic
+                if user is not None:
+                    # XC client - use collision-free integer from map
+                    formatted_channel_number = channel_num_map[channel.id]
                 else:
-                    formatted_channel_number = ""
+                    # Regular client - format channel number as before
+                    if channel.channel_number is not None:
+                        if channel.channel_number == int(channel.channel_number):
+                            formatted_channel_number = int(channel.channel_number)
+                        else:
+                            formatted_channel_number = channel.channel_number
+                    else:
+                        formatted_channel_number = ""
                 # Default to channel number
                 channel_id = str(formatted_channel_number) if formatted_channel_number != "" else str(channel.id)
 
@@ -2113,10 +2148,38 @@ def xc_get_live_streams(request, user, category_id=None):
                 channel_group__id=category_id, user_level__lte=user.user_level
             ).order_by("channel_number")
 
+    # Build collision-free mapping for XC clients (which require integers)
+    # This ensures channels with float numbers don't conflict with existing integers
+    channel_num_map = {}  # Maps channel.id -> integer channel number for XC
+    used_numbers = set()  # Track all assigned integer channel numbers
+
+    # First pass: assign integers for channels that already have integer numbers
     for channel in channels:
+        if channel.channel_number == int(channel.channel_number):
+            # Already an integer, use it directly
+            num = int(channel.channel_number)
+            channel_num_map[channel.id] = num
+            used_numbers.add(num)
+
+    # Second pass: assign integers for channels with float numbers
+    # Find next available number to avoid collisions
+    for channel in channels:
+        if channel.channel_number != int(channel.channel_number):
+            # Has decimal component, need to find available integer
+            # Start from truncated value and increment until we find an unused number
+            candidate = int(channel.channel_number)
+            while candidate in used_numbers:
+                candidate += 1
+            channel_num_map[channel.id] = candidate
+            used_numbers.add(candidate)
+
+    # Build the streams list with the collision-free channel numbers
+    for channel in channels:
+        channel_num_int = channel_num_map[channel.id]
+
         streams.append(
             {
-                "num": int(channel.channel_number) if channel.channel_number.is_integer() else channel.channel_number,
+                "num": channel_num_int,
                 "name": channel.name,
                 "stream_type": "live",
                 "stream_id": channel.id,
@@ -2128,7 +2191,7 @@ def xc_get_live_streams(request, user, category_id=None):
                         reverse("api:channels:logo-cache", args=[channel.logo.id])
                     )
                 ),
-                "epg_channel_id": str(int(channel.channel_number)) if channel.channel_number.is_integer() else str(channel.channel_number),
+                "epg_channel_id": str(channel_num_int),
                 "added": int(channel.created_at.timestamp()),
                 "is_adult": 0,
                 "category_id": str(channel.channel_group.id),
@@ -2177,6 +2240,35 @@ def xc_get_epg(request, user, short=False):
     if not channel:
         raise Http404()
 
+    # Calculate the collision-free integer channel number for this channel
+    # This must match the logic in xc_get_live_streams to ensure consistency
+    # Get all channels in the same category for collision detection
+    category_channels = Channel.objects.filter(
+        channel_group=channel.channel_group
+    ).order_by("channel_number")
+
+    channel_num_map = {}
+    used_numbers = set()
+
+    # First pass: assign integers for channels that already have integer numbers
+    for ch in category_channels:
+        if ch.channel_number == int(ch.channel_number):
+            num = int(ch.channel_number)
+            channel_num_map[ch.id] = num
+            used_numbers.add(num)
+
+    # Second pass: assign integers for channels with float numbers
+    for ch in category_channels:
+        if ch.channel_number != int(ch.channel_number):
+            candidate = int(ch.channel_number)
+            while candidate in used_numbers:
+                candidate += 1
+            channel_num_map[ch.id] = candidate
+            used_numbers.add(candidate)
+
+    # Get the mapped integer for this specific channel
+    channel_num_int = channel_num_map.get(channel.id, int(channel.channel_number))
+
     limit = request.GET.get('limit', 4)
     if channel.epg_data:
         # Check if this is a dummy EPG that generates on-demand
@@ -2209,6 +2301,7 @@ def xc_get_epg(request, user, short=False):
         programs = generate_dummy_programs(channel_id=channel_id, channel_name=channel.name, epg_source=None)
 
     output = {"epg_listings": []}
+
     for program in programs:
         id = "0"
         epg_id = "0"
@@ -2226,7 +2319,7 @@ def xc_get_epg(request, user, short=False):
             "start": start.strftime("%Y%m%d%H%M%S"),
             "end": end.strftime("%Y%m%d%H%M%S"),
             "description": base64.b64encode(description.encode()).decode(),
-            "channel_id": int(channel.channel_number) if channel.channel_number.is_integer() else channel.channel_number,
+            "channel_id": channel_num_int,
             "start_timestamp": int(start.timestamp()),
             "stop_timestamp": int(end.timestamp()),
             "stream_id": f"{channel_id}",
