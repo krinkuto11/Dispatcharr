@@ -12,6 +12,7 @@ import {
   Text,
   Title,
 } from '@mantine/core';
+import { useElementSize } from '@mantine/hooks';
 import {
   ChevronDown,
   CirclePlay,
@@ -38,6 +39,8 @@ const SystemEvents = () => {
   const [events, setEvents] = useState([]);
   const [totalEvents, setTotalEvents] = useState(0);
   const [isExpanded, setIsExpanded] = useState(false);
+  const { ref: cardRef, width: cardWidth } = useElementSize();
+  const isNarrow = cardWidth < 650;
   const [isLoading, setIsLoading] = useState(false);
   const [dateFormatSetting] = useLocalStorage('date-format', 'mdy');
   const dateFormat = dateFormatSetting === 'mdy' ? 'MM/DD' : 'DD/MM';
@@ -166,6 +169,7 @@ const SystemEvents = () => {
 
   return (
     <Card
+      ref={cardRef}
       shadow="sm"
       padding="sm"
       radius="md"
@@ -186,39 +190,43 @@ const SystemEvents = () => {
           <Title order={4}>System Events</Title>
         </Group>
         <Group gap="xs">
-          <NumberInput
-            size="xs"
-            label="Events Per Page"
-            value={eventsLimit}
-            onChange={(value) => setEventsLimit(value || 10)}
-            min={10}
-            max={1000}
-            step={10}
-            style={{ width: 130 }}
-          />
-          <Select
-            size="xs"
-            label="Auto Refresh"
-            value={eventsRefreshInterval.toString()}
-            onChange={(value) => setEventsRefreshInterval(parseInt(value))}
-            data={[
-              { value: '0', label: 'Manual' },
-              { value: '5', label: '5s' },
-              { value: '10', label: '10s' },
-              { value: '30', label: '30s' },
-              { value: '60', label: '1m' },
-            ]}
-            style={{ width: 120 }}
-          />
-          <Button
-            size="xs"
-            variant="subtle"
-            onClick={fetchEvents}
-            loading={isLoading}
-            style={{ marginTop: 'auto' }}
-          >
-            Refresh
-          </Button>
+          {(isExpanded || !isNarrow) && (
+            <>
+              <NumberInput
+                size="xs"
+                label="Events Per Page"
+                value={eventsLimit}
+                onChange={(value) => setEventsLimit(value || 10)}
+                min={10}
+                max={1000}
+                step={10}
+                style={{ width: 130 }}
+              />
+              <Select
+                size="xs"
+                label="Auto Refresh"
+                value={eventsRefreshInterval.toString()}
+                onChange={(value) => setEventsRefreshInterval(parseInt(value))}
+                data={[
+                  { value: '0', label: 'Manual' },
+                  { value: '5', label: '5s' },
+                  { value: '10', label: '10s' },
+                  { value: '30', label: '30s' },
+                  { value: '60', label: '1m' },
+                ]}
+                style={{ width: 120 }}
+              />
+              <Button
+                size="xs"
+                variant="subtle"
+                onClick={fetchEvents}
+                loading={isLoading}
+                style={{ marginTop: 'auto' }}
+              >
+                Refresh
+              </Button>
+            </>
+          )}
           <ActionIcon
             variant="subtle"
             onClick={() => setIsExpanded(!isExpanded)}
