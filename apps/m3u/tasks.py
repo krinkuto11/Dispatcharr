@@ -24,6 +24,7 @@ from core.utils import (
     acquire_task_lock,
     release_task_lock,
     natural_sort_key,
+    log_system_event,
 )
 from core.models import CoreSettings, UserAgent
 from asgiref.sync import async_to_sync
@@ -2839,6 +2840,17 @@ def refresh_single_m3u_account(account_id):
         )
         account.updated_at = timezone.now()
         account.save(update_fields=["status", "last_message", "updated_at"])
+
+        # Log system event for M3U refresh
+        log_system_event(
+            event_type='m3u_refresh',
+            account_name=account.name,
+            elapsed_time=round(elapsed_time, 2),
+            streams_created=streams_created,
+            streams_updated=streams_updated,
+            streams_deleted=streams_deleted,
+            total_processed=streams_processed,
+        )
 
         # Send final update with complete metrics and explicitly include success status
         send_m3u_update(
