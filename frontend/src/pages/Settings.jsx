@@ -278,7 +278,7 @@ const SettingsPage = () => {
   const networkAccessForm = useForm({
     mode: 'controlled',
     initialValues: Object.keys(NETWORK_ACCESS_OPTIONS).reduce((acc, key) => {
-      acc[key] = '0.0.0.0/0,::0/0';
+      acc[key] = '0.0.0.0/0,::/0';
       return acc;
     }, {}),
     validate: Object.keys(NETWORK_ACCESS_OPTIONS).reduce((acc, key) => {
@@ -358,7 +358,7 @@ const SettingsPage = () => {
       );
       networkAccessForm.setValues(
         Object.keys(NETWORK_ACCESS_OPTIONS).reduce((acc, key) => {
-          acc[key] = networkAccessSettings[key] || '0.0.0.0/0,::0/0';
+          acc[key] = networkAccessSettings[key] || '0.0.0.0/0,::/0';
           return acc;
         }, {})
       );

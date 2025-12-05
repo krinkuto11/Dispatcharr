@@ -124,7 +124,7 @@ class StreamViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_class = StreamFilter
     search_fields = ["name", "channel_group__name"]
-    ordering_fields = ["name", "channel_group__name"]
+    ordering_fields = ["name", "channel_group__name", "m3u_account__name"]
     ordering = ["-name"]
 
     def get_permissions(self):
