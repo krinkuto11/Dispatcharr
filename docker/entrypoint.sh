@@ -40,6 +40,22 @@ export REDIS_DB=${REDIS_DB:-0}
 export DISPATCHARR_PORT=${DISPATCHARR_PORT:-9191}
 export LIBVA_DRIVERS_PATH='/usr/local/lib/x86_64-linux-gnu/dri'
 export LD_LIBRARY_PATH='/usr/local/lib'
+export SECRET_FILE="/data/jwt"
+
+if [ ! -f "$SECRET_FILE" ]; then
+  umask 077
+  tmpfile="$(mktemp "${SECRET_FILE}.XXXXXX")" || { echo "mktemp failed"; exit 1; }
+  python3 - <<'PY' >"$tmpfile" || { echo "secret generation failed"; rm -f "$tmpfile"; exit 1; }
+import secrets
+print(secrets.token_urlsafe(64))
+PY
+  mv -f "$tmpfile" "$SECRET_FILE" || { echo "move failed"; rm -f "$tmpfile"; exit 1; }
+fi
+
+chown $PUID:$PGID "$SECRET_FILE" || true
+chmod 600 "$SECRET_FILE" || true
+
+export DJANGO_SECRET_KEY="$(cat "$SECRET_FILE")"
 
 # Process priority configuration
 # UWSGI_NICE_LEVEL: Absolute nice value for uWSGI/streaming (default: 0 = normal priority)
@@ -90,7 +106,7 @@ if [[ ! -f /etc/profile.d/dispatcharr.sh ]]; then
         DISPATCHARR_ENV DISPATCHARR_DEBUG DISPATCHARR_LOG_LEVEL
         REDIS_HOST REDIS_DB POSTGRES_DIR DISPATCHARR_PORT
         DISPATCHARR_VERSION DISPATCHARR_TIMESTAMP LIBVA_DRIVERS_PATH LIBVA_DRIVER_NAME LD_LIBRARY_PATH
-        CELERY_NICE_LEVEL UWSGI_NICE_LEVEL
+        CELERY_NICE_LEVEL UWSGI_NICE_LEVEL DJANGO_SECRET_KEY
     )
 
     # Process each variable for both profile.d and environment

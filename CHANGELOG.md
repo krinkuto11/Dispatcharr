@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.1] - 2025-12-06
+
+### Fixed
+
+- JWT token generated so is unique for each deployment
+
 ## [0.13.0] - 2025-12-02
 
 ### Added
