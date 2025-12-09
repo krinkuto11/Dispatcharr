@@ -41,8 +41,10 @@ export DISPATCHARR_PORT=${DISPATCHARR_PORT:-9191}
 export LIBVA_DRIVERS_PATH='/usr/local/lib/x86_64-linux-gnu/dri'
 export LD_LIBRARY_PATH='/usr/local/lib'
 export SECRET_FILE="/data/jwt"
-
+# Ensure Django secret key exists or generate a new one
 if [ ! -f "$SECRET_FILE" ]; then
+  echo "Generating new Django secret key..."
+  old_umask=$(umask)
   umask 077
   tmpfile="$(mktemp "${SECRET_FILE}.XXXXXX")" || { echo "mktemp failed"; exit 1; }
   python3 - <<'PY' >"$tmpfile" || { echo "secret generation failed"; rm -f "$tmpfile"; exit 1; }
@@ -50,11 +52,8 @@ import secrets
 print(secrets.token_urlsafe(64))
 PY
   mv -f "$tmpfile" "$SECRET_FILE" || { echo "move failed"; rm -f "$tmpfile"; exit 1; }
+  umask $old_umask
 fi
-
-chown $PUID:$PGID "$SECRET_FILE" || true
-chmod 600 "$SECRET_FILE" || true
-
 export DJANGO_SECRET_KEY="$(cat "$SECRET_FILE")"
 
 # Process priority configuration
@@ -203,7 +202,7 @@ fi
 # Users can override via UWSGI_NICE_LEVEL environment variable in docker-compose
 # Start with nice as root, then use setpriv to drop privileges to dispatch user
 # This preserves both the nice value and environment variables
-nice -n $UWSGI_NICE_LEVEL su -p - "$POSTGRES_USER" -c "cd /app && exec uwsgi $uwsgi_args" & uwsgi_pid=$!
+nice -n $UWSGI_NICE_LEVEL su - "$POSTGRES_USER" -c "cd /app && exec /dispatcharrpy/bin/uwsgi $uwsgi_args" & uwsgi_pid=$!
 echo "✅ uwsgi started with PID $uwsgi_pid (nice $UWSGI_NICE_LEVEL)"
 pids+=("$uwsgi_pid")
 
