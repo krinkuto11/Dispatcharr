@@ -30,6 +30,7 @@ import { isNotEmpty, useForm } from '@mantine/form';
 import { notifications } from '@mantine/notifications';
 import UserAgentsTable from '../components/tables/UserAgentsTable';
 import StreamProfilesTable from '../components/tables/StreamProfilesTable';
+import BackupManager from '../components/backups/BackupManager';
 import useLocalStorage from '../hooks/useLocalStorage';
 import useAuthStore from '../store/auth';
 import {
@@ -1055,6 +1056,10 @@ const SettingsPage = () => {
                           value: 'm3u_id',
                           label: 'M3U ID',
                         },
+                        {
+                          value: 'group',
+                          label: 'Group',
+                        },
                       ]}
                       {...form.getInputProps('m3u-hash-key')}
                       key={form.key('m3u-hash-key')}
@@ -1304,6 +1309,13 @@ const SettingsPage = () => {
                       </Flex>
                     </Stack>
                   </form>
+                </Accordion.Panel>
+              </Accordion.Item>
+
+              <Accordion.Item value="backups">
+                <Accordion.Control>Backup & Restore</Accordion.Control>
+                <Accordion.Panel>
+                  <BackupManager />
                 </Accordion.Panel>
               </Accordion.Item>
             </>

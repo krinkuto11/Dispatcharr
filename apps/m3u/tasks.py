@@ -792,7 +792,7 @@ def process_xc_category_direct(account_id, batch, groups, hash_keys):
                         group_title = group_name
 
                         stream_hash = Stream.generate_hash_key(
-                            name, url, tvg_id, hash_keys, m3u_id=account_id
+                            name, url, tvg_id, hash_keys, m3u_id=account_id, group=group_title
                         )
                         stream_props = {
                             "name": name,
@@ -966,7 +966,7 @@ def process_m3u_batch_direct(account_id, batch, groups, hash_keys):
                 )
                 continue
 
-            stream_hash = Stream.generate_hash_key(name, url, tvg_id, hash_keys, m3u_id=account_id)
+            stream_hash = Stream.generate_hash_key(name, url, tvg_id, hash_keys, m3u_id=account_id, group=group_title)
             stream_props = {
                 "name": name,
                 "url": url,
