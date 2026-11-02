@@ -136,6 +136,15 @@ class OutputProfileManager:
             self.output_buffer = self._make_buffer()
             return False
 
+        from ...ffmpeg_diagnostics import initialize_ffmpeg_diagnostics
+
+        initialize_ffmpeg_diagnostics(
+            self._redis,
+            RedisKeys.output_ffmpeg_diagnostics(self.channel_id, self.profile_id),
+            reset=False,
+            ttl=PROFILE_KEY_TTL,
+        )
+
         self.output_buffer = self._make_buffer()
 
         try:
@@ -337,6 +346,13 @@ class OutputProfileManager:
                 else:
                     if self.ts_buffer.index > local_index + 20:
                         skip_to = self.ts_buffer.index - 5
+                        from ...ffmpeg_diagnostics import record_output_process_event
+                        record_output_process_event(
+                            self._redis,
+                            RedisKeys.output_ffmpeg_diagnostics(self.channel_id, self.profile_id),
+                            "writer_skip",
+                            skipped=max(0, skip_to - local_index),
+                        )
                         # Source switches inside the skipped range never reach
                         # the loop above, so restart for them here.
                         if self.ts_buffer.discontinuities_in_range(local_index, skip_to):
@@ -476,6 +492,18 @@ class OutputProfileManager:
                 )
 
         self._start_slot_threads(new)
+        from ...ffmpeg_diagnostics import record_output_process_event
+        restart_reason = (
+            "input_discontinuity" if reason.startswith("input discontinuity")
+            else "pmt_layout_change" if reason == "PMT/ES layout change"
+            else "other"
+        )
+        record_output_process_event(
+            self._redis,
+            RedisKeys.output_ffmpeg_diagnostics(self.channel_id, self.profile_id),
+            "restart",
+            reason=restart_reason,
+        )
         logger.info(
             f"[Profile:{self.profile_id}:{short}] "
             f"Transcode restarted (pid={new_process.pid}, {reason}, "
@@ -488,6 +516,7 @@ class OutputProfileManager:
         """Read chunks from process stdout and write to the output StreamBuffer."""
         read_size = 65536
         process = slot.process
+        reader_failed = False
         logger.debug(
             f"[Profile:{self.profile_id}:{self.channel_id[:8]}] Reader started"
         )
@@ -518,11 +547,27 @@ class OutputProfileManager:
                 self.output_buffer.add_chunk(data)
 
         except Exception as e:
+            reader_failed = True
             logger.error(
                 f"[Profile:{self.profile_id}:{self.channel_id[:8]}] "
                 f"Reader loop error: {e}", exc_info=True
             )
         finally:
+            if self.running and not slot.closing.is_set() and not slot.abandoned.is_set():
+                from ...ffmpeg_diagnostics import record_output_process_event
+                exit_code = process.poll()
+                stop_reason = (
+                    "process_exit" if exit_code is not None
+                    else "reader_error" if reader_failed
+                    else "stdout_eof"
+                )
+                record_output_process_event(
+                    self._redis,
+                    RedisKeys.output_ffmpeg_diagnostics(self.channel_id, self.profile_id),
+                    "unexpected_stop",
+                    reason=stop_reason,
+                    exit_code=exit_code,
+                )
             # EOF after an intentional stdin close is a restart, not the end of
             # the stream: the shared output ring lives on for the replacement.
             if self.output_buffer and not slot.closing.is_set():
@@ -532,10 +577,32 @@ class OutputProfileManager:
             )
 
     def _stderr_loop(self, slot):
-        """Log process stderr at WARNING level."""
+        """Parse bounded FFmpeg diagnostics and log non-stat lines."""
         import os as _os
         import select as _select
         process = slot.process
+
+        def consume_line(line):
+            if not line:
+                return
+            from ...ffmpeg_diagnostics import (
+                parse_ffmpeg_stats_line,
+                record_ffmpeg_error,
+                record_ffmpeg_stats,
+            )
+
+            key = RedisKeys.output_ffmpeg_diagnostics(self.channel_id, self.profile_id)
+            stats = parse_ffmpeg_stats_line(line)
+            if stats:
+                record_ffmpeg_stats(self._redis, key, stats)
+                logger.trace(
+                    f"[Profile:{self.profile_id}:{self.channel_id[:8]}] FFmpeg stats updated"
+                )
+                return
+
+            record_ffmpeg_error(self._redis, key, line)
+            logger.warning(f"[Profile:{self.profile_id}:{self.channel_id[:8]}] {line}")
+
         try:
             stderr_fd = process.stderr.fileno()
             buf = b""
@@ -549,13 +616,19 @@ class OutputProfileManager:
                 if not chunk:
                     break
                 buf += chunk
-                while b'\n' in buf:
-                    line_bytes, buf = buf.split(b'\n', 1)
+                while True:
+                    cr = buf.find(b'\r')
+                    nl = buf.find(b'\n')
+                    if cr == -1 and nl == -1:
+                        break
+                    if cr != -1 and (nl == -1 or cr < nl):
+                        line_bytes, buf = buf[:cr], buf[cr + 1:]
+                    else:
+                        line_bytes, buf = buf[:nl], buf[nl + 1:]
                     line = line_bytes.decode(errors="replace").rstrip()
-                    if line:
-                        logger.warning(
-                            f"[Profile:{self.profile_id}:{self.channel_id[:8]}] {line}"
-                        )
+                    consume_line(line)
+            if buf.strip():
+                consume_line(buf.decode(errors="replace").strip())
         except Exception:
             pass
 
@@ -621,6 +694,10 @@ class OutputProfileManager:
             pipe = self._redis.pipeline()
             pipe.expire(RedisKeys.output_owner(self.channel_id, fmt), PROFILE_KEY_TTL)
             pipe.expire(RedisKeys.output_state(self.channel_id, fmt), PROFILE_KEY_TTL)
+            pipe.expire(
+                RedisKeys.output_ffmpeg_diagnostics(self.channel_id, self.profile_id),
+                PROFILE_KEY_TTL,
+            )
             pipe.execute()
         except Exception as e:
             logger.debug(
@@ -629,7 +706,7 @@ class OutputProfileManager:
             )
 
     def _cleanup_redis(self):
-        """Delete all output:mpegts:p{profile_id}:* Redis keys for this (channel, profile) pair."""
+        """Delete live buffer/state keys; leave the diagnostics hash to expire by TTL."""
         if not self._redis:
             return
         fmt = self._profile_fmt()

@@ -99,13 +99,18 @@ class OutputStreamBuffer:
 
     def get_chunks(self, start_index=None):
         """Retrieve chunks from start_index up to current head. Returns (chunks, new_index)."""
+        chunks, new_index, _missing = self.get_chunks_with_missing(start_index)
+        return chunks, new_index
+
+    def get_chunks_with_missing(self, start_index=None):
+        """Return chunks, new index, and count of expired/missing positions."""
         try:
             if not self.redis_client:
-                return [], self.index
+                return [], self.index, 0
 
             current_index = self.redis_client.get(self.buffer_index_key)
             if not current_index:
-                return [], self.index
+                return [], self.index, 0
 
             current_index = int(current_index)
 
@@ -113,7 +118,7 @@ class OutputStreamBuffer:
                 start_index = max(0, current_index - 5)
 
             if start_index >= current_index:
-                return [], current_index
+                return [], current_index, 0
 
             chunks = []
             pipe = self.redis_client.pipeline(transaction=False)
@@ -122,15 +127,18 @@ class OutputStreamBuffer:
                 pipe.get(RedisKeys.output_buffer_chunk(self.channel_id, self.fmt, i))
             results = pipe.execute()
 
+            missing = 0
             for data in results:
                 if data:
                     chunks.append(data)
+                else:
+                    missing += 1
 
-            return chunks, current_index
+            return chunks, current_index, missing
 
         except Exception as e:
             logger.error(f"[OutputBuffer:{self.fmt}:{self.channel_id}] Error getting chunks: {e}")
-            return [], self.index
+            return [], self.index, 0
 
     def find_chunk_index_by_time(self, seconds_behind):
         """Return the chunk index that was received ~seconds_behind seconds ago.

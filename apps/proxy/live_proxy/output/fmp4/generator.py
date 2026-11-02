@@ -13,6 +13,7 @@ from core.utils import log_system_event
 from django.db import close_old_connections
 from ...server import ProxyServer
 from ...redis_keys import RedisKeys
+from ...delivery_diagnostics import DeliveryGapTracker, record_skipped_chunks, record_starvation
 from ...constants import ChannelMetadataField
 from ..buffer import OutputStreamBuffer
 from .manager import FMP4_STATE_ACTIVE, INIT_SEGMENT_TIMEOUT
@@ -73,6 +74,9 @@ class FMP4StreamGenerator:
         self.local_index = 0
         self.last_yield_time = time.time()
         self.consecutive_empty = 0
+        self._delivery_wait_started = None
+        self._delivery_wait_phase = "startup"
+        self._delivery_gap_tracker = DeliveryGapTracker()
 
         self._last_resource_check_time = 0.0
         self._resource_check_interval = 1.0
@@ -131,7 +135,26 @@ class FMP4StreamGenerator:
         except Exception as e:
             logger.error(f"[{self.client_id}] fMP4 stream error: {e}", exc_info=True)
         finally:
+            self._finish_delivery_wait("ended")
             self._cleanup()
+
+    def _start_delivery_wait(self):
+        if self._delivery_wait_started is None:
+            self._delivery_wait_started = time.monotonic()
+            self._delivery_wait_phase = "playback" if self.chunks_sent else "startup"
+
+    def _finish_delivery_wait(self, outcome):
+        if self._delivery_wait_started is None:
+            return
+        duration = time.monotonic() - self._delivery_wait_started
+        self._delivery_wait_started = None
+        if not self._delivery_gap_tracker.is_anomalous(duration):
+            return
+        proxy_server = self.proxy_server or ProxyServer.get_instance()
+        record_starvation(
+            proxy_server.redis_client if proxy_server else None,
+            self.channel_id, self.fmt, duration, self._delivery_wait_phase, outcome,
+        )
 
     # ------------------------------------------------------------------
     # Wait helpers
@@ -263,9 +286,12 @@ class FMP4StreamGenerator:
             if not self._check_resources():
                 break
 
-            chunks, new_index = self.fmp4_buffer.get_chunks(start_index=self.local_index)
+            chunks, new_index, missing = self.fmp4_buffer.get_chunks_with_missing(start_index=self.local_index)
+            if missing:
+                record_skipped_chunks(proxy_server.redis_client, self.channel_id, self.fmt, missing)
 
             if chunks:
+                self._finish_delivery_wait("recovered")
                 self.consecutive_empty = 0
                 for chunk in chunks:
                     yield chunk
@@ -284,6 +310,9 @@ class FMP4StreamGenerator:
                     except Exception:
                         pass
             else:
+                self._start_delivery_wait()
+                if missing:
+                    self.local_index = new_index
                 self.consecutive_empty += 1
                 gevent.sleep(0.05)
 

@@ -21,6 +21,7 @@ from .segmenter import TSSegmenter
 from .waiters import notify_playlist_ready
 from ...constants import EventType
 from ...redis_keys import RedisKeys
+from ...delivery_diagnostics import record_hls_segment
 from ...config_helper import ConfigHelper
 from ...utils import get_logger
 
@@ -484,6 +485,10 @@ class HLSOutputManager:
             "disc": bool(segment.discontinuity),
         })
         self._last_segment_ts = time.time()
+        record_hls_segment(
+            self._redis, self.channel_id, self.fmt,
+            self._last_segment_ts, self.adv_target,
+        )
         self._prune_playlist_window()
         self._maybe_write_playlist_state()
 

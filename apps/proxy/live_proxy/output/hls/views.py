@@ -46,6 +46,7 @@ from core.utils import RedisClient
 from ...config_helper import ConfigHelper
 from ...constants import ChannelMetadataField, ChannelState
 from ...redis_keys import RedisKeys
+from ...delivery_diagnostics import record_hls_event
 from ...server import ProxyServer
 from ...services.channel_service import ChannelService
 from ...utils import get_logger
@@ -273,6 +274,7 @@ def _cold_start_playlist_chunks(redis_client, token, channel_id, client_id, fmt,
                 channel_state, now, started, ready_since, init_grace
             )
             if exceeded:
+                record_hls_event(redis_client, channel_id, fmt, "playlist_cold_start_timeout")
                 logger.warning(
                     f"[{client_id}] HLS cold-start timed out waiting for "
                     f"playlist on {channel_id}"
@@ -406,11 +408,13 @@ def _serve_hls_playlist(token):
             logger.warning(
                 f"[{client_id}] HLS playlist for {channel_id} stopped advancing"
             )
+            record_hls_event(redis_client, channel_id, fmt, "playlist_stale")
             return JsonResponse({"error": "Playlist stale"}, status=404)
         except (TypeError, ValueError, KeyError) as e:
             logger.error(
                 f"[{client_id}] Malformed HLS playlist state for {channel_id}: {e}"
             )
+            record_hls_event(redis_client, channel_id, fmt, "playlist_malformed")
             return JsonResponse({"error": "Playlist unavailable"}, status=500)
         response = HttpResponse(body, content_type="application/vnd.apple.mpegurl")
         response["Cache-Control"] = "no-cache"
@@ -425,6 +429,7 @@ def _serve_hls_playlist(token):
         _drop_hls_session(redis_client, token)
         return JsonResponse({"error": "Stream stopped"}, status=410)
 
+    record_hls_event(redis_client, channel_id, fmt, "playlist_cold_start")
     response = StreamingHttpResponse(
         _cold_start_playlist_chunks(
             redis_client,
@@ -460,6 +465,14 @@ def _serve_hls_segment(token, seq):
     data = redis_buffer.get(RedisKeys.output_buffer_chunk(channel_id, fmt, int(seq)))
     if not data:
         # Expired out of the rolling window (player fell too far behind).
+        record_hls_event(redis_client, channel_id, fmt, "segment_expired")
+        try:
+            descriptor = redis_client.get(RedisKeys.output_playlist(channel_id, fmt))
+            window = json.loads(descriptor).get("window", []) if descriptor else []
+            if any(int(entry.get("seq", -1)) == int(seq) for entry in window):
+                record_hls_event(redis_client, channel_id, fmt, "segment_advertised_missing")
+        except (TypeError, ValueError, KeyError):
+            pass
         return JsonResponse({"error": "Segment expired"}, status=404)
 
     response = HttpResponse(data, content_type="video/mp2t")

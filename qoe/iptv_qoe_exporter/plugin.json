@@ -1,0 +1,74 @@
+{
+  "manifest_version": 2,
+  "name": "Dispatcharr QoE Metrics",
+  "version": "0.3.1",
+  "description": "Exports channel, FFmpeg and Dispatcharr event metrics for Prometheus.",
+  "author": "AceStream Project",
+  "capabilities": [
+    "persistent_service",
+    "network_listener",
+    "proxy_internals"
+  ],
+  "fields": [
+    {
+      "id": "bind_host",
+      "label": "Metrics bind address",
+      "type": "string",
+      "default": "0.0.0.0",
+      "help_text": "Keep this endpoint reachable only from the Prometheus network."
+    },
+    {
+      "id": "port",
+      "label": "Metrics port",
+      "type": "number",
+      "default": 9193,
+      "min": 1024,
+      "max": 65535
+    },
+    {
+      "id": "stats_stale_after_seconds",
+      "label": "FFmpeg stats freshness (seconds)",
+      "type": "number",
+      "default": 15,
+      "min": 1,
+      "max": 300
+    },
+    {
+      "id": "progress_stale_after_seconds",
+      "label": "FFmpeg progress freshness (seconds)",
+      "type": "number",
+      "default": 15,
+      "min": 1,
+      "max": 300
+    },
+    {
+      "id": "buffer_stale_after_seconds",
+      "label": "Buffer freshness threshold (seconds)",
+      "type": "number",
+      "default": 10,
+      "min": 1,
+      "max": 120
+    }
+  ],
+  "actions": [
+    {
+      "id": "record_dispatcharr_event",
+      "label": "Dispatcharr event collector",
+      "description": "Records channel buffering, failover, reconnect, error, stream-switch and client lifecycle events. The button shows the durable counter summary.",
+      "button_label": "View counters",
+      "button_variant": "light",
+      "button_color": "blue",
+      "events": [
+        "channel_start",
+        "channel_stop",
+        "channel_buffering",
+        "channel_failover",
+        "channel_reconnect",
+        "channel_error",
+        "stream_switch",
+        "client_connect",
+        "client_disconnect"
+      ]
+    }
+  ]
+}

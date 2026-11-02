@@ -1,0 +1,89 @@
+name: QoE fork CI
+
+on:
+  push:
+    branches: [feat/qoe-observability, main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qoe-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies and FFmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r qoe/ci-test-requirements.txt
+      - name: Check core and exporter syntax
+        run: |
+          python -m compileall -q apps/proxy/live_proxy qoe/iptv_qoe_exporter qoe/probe scripts/qoe_release_sync.py
+      - name: Run Dispatcharr live-output tests
+        env:
+          DJANGO_SECRET_KEY: qoe-ci-test-only
+        run: |
+          python manage.py test \
+            apps.proxy.live_proxy.tests.test_delivery_diagnostics \
+            apps.proxy.live_proxy.tests.test_delivery_generators \
+            apps.proxy.live_proxy.tests.test_delivery_hls_events \
+            apps.proxy.live_proxy.tests.test_ffmpeg_diagnostics \
+            apps.proxy.live_proxy.tests.test_output_buffer_missing \
+            apps.proxy.live_proxy.tests.test_hls_views \
+            apps.proxy.live_proxy.tests.test_output_profile_restart \
+            apps.proxy.live_proxy.tests.test_stream_ts_client_registration \
+            apps.proxy.live_proxy.tests.test_ts_generator_release --noinput
+      - name: Run exporter and synthetic decoder tests
+        run: |
+          python -m unittest discover -s qoe/iptv_qoe_exporter -p 'test_*.py'
+          python -m unittest discover -s qoe/probe -p 'test_probe*.py'
+          python -m unittest scripts.test_qoe_release_sync
+
+  images:
+    needs: qoe-tests
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Dispatcharr fork image
+        run: |
+          docker build --file docker/Dockerfile \
+            --build-arg REPO_OWNER=dispatcharr \
+            --build-arg REPO_NAME=dispatcharr \
+            --build-arg BASE_TAG=base \
+            --build-arg TIMESTAMP="$(git show -s --format=%cI HEAD)" \
+            --tag dispatcharr-qoe-ci:${{ github.sha }} .
+      - name: Verify plugin v2 compatibility in built image
+        run: |
+          docker run --rm --entrypoint python "dispatcharr-qoe-ci:${{ github.sha }}" -c \
+            'from version import __version__, __timestamp__; from apps.plugins.capabilities import manifest_version_supported; assert manifest_version_supported(2, __version__, is_dev_build=__timestamp__ is not None), (__version__, __timestamp__)'
+      - name: Log in to GHCR for branch builds
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable branch image
+        if: github.event_name == 'push'
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/dispatcharr-qoe:dev-${{ github.sha }}"
+          docker tag "dispatcharr-qoe-ci:${{ github.sha }}" "$image"
+          docker push "$image"
+      - name: Build decoder probe image
+        run: docker build --file qoe/probe/Dockerfile --tag dispatcharr-qoe-probe-ci:${{ github.sha }} qoe/probe
+      - name: Publish immutable decoder image
+        if: github.event_name == 'push'
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/dispatcharr-qoe-probe:dev-${{ github.sha }}"
+          docker tag "dispatcharr-qoe-probe-ci:${{ github.sha }}" "$image"
+          docker push "$image"
