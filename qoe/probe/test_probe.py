@@ -18,14 +18,34 @@ class ProbeStateTests(unittest.TestCase):
         state.start_process()
         clock.value = 1.0
         state.media_progress(1_000_000)
-        clock.value = 3.1
-        state.tick()
-        self.assertEqual(state.stall_started, 1.0)
-        clock.value = 5.0
+        clock.value = 1.5
         state.media_progress(2_000_000)
+        clock.value = 4.6
+        state.tick()
+        self.assertEqual(state.stall_started, 2.5)
+        clock.value = 5.0
+        state.media_progress(3_000_000)
         self.assertEqual(state.stalls_total, 1)
-        self.assertEqual(state.stall_seconds_total, 4.0)
+        self.assertEqual(state.stall_seconds_total, 2.5)
         self.assertIsNone(state.stall_started)
+
+    def test_batched_media_progress_covers_normal_chunk_gap(self):
+        clock = Clock()
+        state = ProbeState(stall_after=2.0, clock=clock)
+        state.start_process()
+        clock.value = 1.0
+        state.media_progress(1_000_000)
+        clock.value = 1.5
+        state.media_progress(3_500_000)
+        clock.value = 3.6
+        state.tick()
+        self.assertIsNone(state.stall_started)
+        clock.value = 4.0
+        state.media_progress(6_000_000)
+        clock.value = 6.4
+        state.tick()
+        self.assertIsNone(state.stall_started)
+        self.assertEqual(state.stalls_total, 0)
 
     def test_process_exit_closes_gap_and_timeline_reset_is_progress(self):
         clock = Clock()

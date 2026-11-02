@@ -18,6 +18,7 @@ STARTUP_SLOW_AFTER = float(os.getenv("QOE_PROBE_STARTUP_SLOW_AFTER_SECONDS", "10
 PORT = int(os.getenv("QOE_PROBE_PORT", "9194"))
 URL_FILE = Path(os.getenv("QOE_PROBE_URL_FILE", "/run/secrets/qoe_probe_url"))
 FFMPEG = os.getenv("QOE_PROBE_FFMPEG", "ffmpeg")
+MAX_MEDIA_CREDIT_SECONDS = 10.0
 
 ERROR_PATTERNS = {
     "decode": re.compile(r"(?:error while decoding|decode error|corrupt|damaged macroblock)", re.I),
@@ -37,6 +38,8 @@ class ProbeState:
         self.first_media_at = None
         self.last_media_at = None
         self.last_media_time_us = None
+        self.media_credit_seconds = 0.0
+        self.media_progress_updates = 0
         self.stall_started = None
         self.stalls_total = 0
         self.stall_seconds_total = 0.0
@@ -56,6 +59,8 @@ class ProbeState:
             self.first_media_at = None
             self.last_media_at = None
             self.last_media_time_us = None
+            self.media_credit_seconds = 0.0
+            self.media_progress_updates = 0
             self.stall_started = None
 
     def media_progress(self, media_time_us):
@@ -73,7 +78,16 @@ class ProbeState:
                 return
             if previous is not None and media_time_us < previous:
                 self.timeline_resets_total += 1
+                self.media_credit_seconds = 0.0
+            elif previous is not None and self.last_media_at is not None:
+                elapsed = max(0.0, now - self.last_media_at)
+                advance = max(0.0, (media_time_us - previous) / 1_000_000)
+                self.media_credit_seconds = min(
+                    MAX_MEDIA_CREDIT_SECONDS,
+                    max(0.0, self.media_credit_seconds - elapsed) + advance,
+                )
             self.last_media_time_us = media_time_us
+            self.media_progress_updates += 1
             if self.first_media_at is None:
                 self.first_media_at = now
                 self.startup_seconds_last = now - self.process_started
@@ -87,8 +101,13 @@ class ProbeState:
 
     def _tick_locked(self, now):
         if self.running and self.first_media_at is not None and self.stall_started is None:
-            if now - self.last_media_at >= self.stall_after:
-                self.stall_started = self.last_media_at
+            # Progress arrives in media chunks. The decoded timeline can be
+            # ahead of wall time even while FFmpeg emits no progress block.
+            # Count only when that playable lead has run out.
+            estimated_exhaustion = self.last_media_at + self.media_credit_seconds
+            threshold = self.stall_after if self.media_progress_updates >= 2 else max(5.0, self.stall_after)
+            if now - estimated_exhaustion >= threshold:
+                self.stall_started = estimated_exhaustion
 
     def tick(self):
         with self.lock:
@@ -130,6 +149,8 @@ class ProbeState:
                 f"dispatcharr_probe_media_progress_age_seconds {max(0.0, now - self.last_media_at) if self.last_media_at is not None else 0}",
                 "# TYPE dispatcharr_probe_media_progress_present gauge",
                 f"dispatcharr_probe_media_progress_present {int(self.last_media_at is not None)}",
+                "# TYPE dispatcharr_probe_media_credit_seconds gauge",
+                f"dispatcharr_probe_media_credit_seconds {max(0.0, self.media_credit_seconds - (now - self.last_media_at)) if self.last_media_at is not None else 0}",
                 "# TYPE dispatcharr_probe_stall_active gauge",
                 f"dispatcharr_probe_stall_active {int(self.stall_started is not None)}",
                 "# TYPE dispatcharr_probe_stalls_total counter",

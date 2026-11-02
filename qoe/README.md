@@ -19,7 +19,7 @@ the output-profile/HLS discontinuity work absent from stable `v0.33.0`.
 - [`iptv_qoe_exporter`](iptv_qoe_exporter/README.md), whose source is in this
   repo and exports those Redis counters with bounded labels.
 - A [synthetic decoder probe](probe/README.md) that opens one real stream and
-  reports pauses in decoded-media progress. It still cannot observe a
+  estimates when already decoded media runs out. It still cannot observe a
   spectator player's buffer or device.
 
 No URL, token, client ID, IP or raw FFmpeg log line is used as a Prometheus

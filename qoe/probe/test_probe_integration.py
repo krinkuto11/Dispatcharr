@@ -1,4 +1,4 @@
-"""End-to-end decoder pause detection against a local MPEG-TS HTTP stream."""
+"""End-to-end decoder credit check against a local MPEG-TS HTTP stream."""
 
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -14,7 +14,7 @@ from probe import ProbeState, _progress_reader, _stderr_reader
 
 @unittest.skipUnless(shutil.which("ffmpeg"), "FFmpeg is required")
 class ProbeIntegrationTests(unittest.TestCase):
-    def test_decoder_reports_a_midstream_http_pause(self):
+    def test_buffered_media_covers_a_midstream_http_pause(self):
         with tempfile.TemporaryDirectory() as directory:
             media = Path(directory) / "sample.ts"
             subprocess.run([
@@ -73,8 +73,9 @@ class ProbeIntegrationTests(unittest.TestCase):
                 process.stderr.close()
                 state.stop_process(exit_code)
                 self.assertEqual(exit_code, 0)
-                self.assertGreaterEqual(state.stalls_total, 1)
-                self.assertGreaterEqual(state.stall_seconds_total, 2)
+                # The decoder already received ~18 seconds of media before
+                # the 4.5-second network pause. That is not a playback stall.
+                self.assertEqual(state.stalls_total, 0)
             finally:
                 server.shutdown()
                 server.server_close()

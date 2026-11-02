@@ -1,7 +1,7 @@
 # Synthetic Dispatcharr decoder probe
 
 This container opens **one real stream connection** and decodes video/audio
-with FFmpeg. It reports pauses in decoded-media progress, startup delay,
+with FFmpeg. It estimates stalls after already decoded media has run out, plus startup delay,
 process exits and bounded decoder/network errors on `GET /metrics` (port 9194).
 It is a synthetic decoder: it does not measure the buffer of a spectator's
 specific app/device, so correlate it with client-side QoE telemetry when
@@ -28,7 +28,9 @@ available. Run one instance per channel/output format/profile worth monitoring.
    port to Prometheus/NetBird; the endpoint has no authentication. Add stable
    Prometheus target labels for channel and format, never the URL or token.
 
-`QOE_PROBE_STALL_AFTER_SECONDS` defaults to 2; `QOE_PROBE_STARTUP_SLOW_AFTER_SECONDS`
+`QOE_PROBE_STALL_AFTER_SECONDS` defaults to 2 seconds of grace after estimated
+decoded-media credit is exhausted. Credit is capped at 10 seconds so a large
+timestamp jump cannot hide a later stall. `QOE_PROBE_STARTUP_SLOW_AFTER_SECONDS`
 defaults to 10. The probe retries after an FFmpeg exit and rereads the URL file,
 so a rotated token is picked up. It treats a backwards media timestamp as a
 timeline reset and progress, recording `dispatcharr_probe_timeline_resets_total`.
@@ -44,6 +46,6 @@ dispatcharr_probe_media_progress_age_seconds
 
 Test locally with `python -m unittest discover -s . -p test_probe.py`. Before
 using a live production URL, validate the probe on a controlled stream where
-media stops for 3–5 seconds and resumes, and compare the detected gap with a
+media stops long enough to exhaust its buffer, and compare the detected gap with a
 real player. Keep the probe's connection in mind when interpreting audience
 counts and channel teardown.
