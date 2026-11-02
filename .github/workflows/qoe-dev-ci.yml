@@ -44,6 +44,7 @@ jobs:
         run: |
           python -m unittest discover -s qoe/iptv_qoe_exporter -p 'test_*.py'
           python -m unittest discover -s qoe/probe -p 'test_probe*.py'
+          python -m unittest scripts.test_qoe_release_sync
 
   images:
     needs: qoe-tests

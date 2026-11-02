@@ -47,15 +47,31 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git remote add upstream https://github.com/Dispatcharr/Dispatcharr.git
           python scripts/qoe_release_sync.py "$RELEASE_TAG"
-      - name: Compile Python and test container build
+      - name: Test candidate and build container
         if: steps.sync.outputs.status == 'updated'
         run: |
-          python -m compileall -q apps/proxy/live_proxy apps/plugins scripts/qoe_release_sync.py
-          python -m unittest apps.proxy.live_proxy.tests.test_ffmpeg_diagnostics
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          python -m pip install -r qoe/ci-test-requirements.txt
+          python -m compileall -q apps/proxy/live_proxy qoe scripts/qoe_release_sync.py
+          DJANGO_SECRET_KEY=qoe-ci-test-only python manage.py test \
+            apps.proxy.live_proxy.tests.test_delivery_diagnostics \
+            apps.proxy.live_proxy.tests.test_delivery_generators \
+            apps.proxy.live_proxy.tests.test_delivery_hls_events \
+            apps.proxy.live_proxy.tests.test_ffmpeg_diagnostics \
+            apps.proxy.live_proxy.tests.test_output_buffer_missing \
+            apps.proxy.live_proxy.tests.test_hls_views \
+            apps.proxy.live_proxy.tests.test_output_profile_restart \
+            apps.proxy.live_proxy.tests.test_stream_ts_client_registration \
+            apps.proxy.live_proxy.tests.test_ts_generator_release --noinput
+          python -m unittest discover -s qoe/iptv_qoe_exporter -p 'test_*.py'
+          python -m unittest discover -s qoe/probe -p 'test_probe*.py'
+          python -m unittest scripts.test_qoe_release_sync
           docker build --file docker/Dockerfile \
             --build-arg REPO_OWNER=dispatcharr \
             --build-arg REPO_NAME=dispatcharr \
             --build-arg BASE_TAG=base \
+            --build-arg TIMESTAMP="$(git show -s --format=%cI HEAD)" \
             --tag dispatcharr-qoe-candidate:${{ steps.sync.outputs.release_tag }} .
       - name: Open review pull request
         if: steps.sync.outputs.status == 'updated'
@@ -68,7 +84,7 @@ jobs:
           git push origin "HEAD:refs/heads/$CANDIDATE"
           gh pr create --base "$BASE_BRANCH" --head "$CANDIDATE" \
             --title "Sync Dispatcharr $RELEASE_TAG into QoE fork" \
-            --body "Published upstream release: $RELEASE_TAG. Python compilation and a container build passed. Review QoE-specific diff and run stream/player smoke tests before merge. Production image promotion is separate."
+            --body "Published upstream release: $RELEASE_TAG. QoE tests, synthetic decoder tests and a container build passed. Review QoE-specific diff and run stream/player smoke tests before merge. Production image promotion is separate."
       - name: Report failed candidate checks
         if: failure() && steps.sync.outputs.status == 'updated'
         env:
