@@ -11,8 +11,8 @@ class RedisKeys:
 
     @staticmethod
     def input_ffmpeg_diagnostics(channel_id):
-        """Aggregate FFmpeg diagnostics for the channel's current input session."""
-        return f"live:channel:{channel_id}:input:ffmpeg:diagnostics"
+        """Durable FFmpeg counters outside the live-channel cleanup namespace."""
+        return f"qoe:channel:{channel_id}:input:ffmpeg:diagnostics"
 
     @staticmethod
     def buffer_index(channel_id):
@@ -135,13 +135,13 @@ class RedisKeys:
 
     @staticmethod
     def output_ffmpeg_diagnostics(channel_id, profile_id):
-        """Aggregate diagnostics for an output-profile FFmpeg process."""
-        return f"live:channel:{channel_id}:output:mpegts:p{profile_id}:diagnostics"
+        """Durable diagnostics for an output-profile FFmpeg process."""
+        return f"qoe:channel:{channel_id}:output:mpegts:p{profile_id}:diagnostics"
 
     @staticmethod
     def output_delivery_diagnostics(channel_id, fmt):
-        """Aggregate delivery diagnostics for an output format and profile."""
-        return f"live:channel:{channel_id}:output:{fmt}:delivery:diagnostics"
+        """Durable delivery counters outside the live-channel cleanup namespace."""
+        return f"qoe:channel:{channel_id}:output:{fmt}:delivery:diagnostics"
 
     @staticmethod
     def output_owner(channel_id, fmt):

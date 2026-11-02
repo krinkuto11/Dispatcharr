@@ -1,10 +1,12 @@
 """Low-cardinality, best-effort diagnostics for live output delivery.
 
-Redis writes happen when an episode closes, a chunk is skipped, an HLS request
-fails/completes, or a segment is published. No write occurs per TS packet.
+Redis writes happen when an anomalous episode closes, a chunk is skipped, an
+HLS request fails, or a segment is published. No write occurs per TS packet.
 """
 
 import math
+from collections import deque
+from statistics import median
 import time
 
 from .redis_keys import RedisKeys
@@ -12,6 +14,35 @@ from .redis_keys import RedisKeys
 
 DIAGNOSTICS_TTL = 86400
 MIN_STARVATION_SECONDS = 2.0
+
+
+class DeliveryGapTracker:
+    """Ignore normal chunk cadence while retaining a two-second floor.
+
+    TS/fMP4 buffers publish complete chunks, so low-bitrate streams may
+    normally wait longer than two seconds between chunks. Learn a short
+    per-client baseline and count only waits well above that cadence.
+    """
+
+    def __init__(self):
+        self._normal_waits = deque(maxlen=6)
+
+    def is_anomalous(self, seconds):
+        try:
+            seconds = float(seconds)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(seconds) or seconds < 0:
+            return False
+        threshold = (
+            max(MIN_STARVATION_SECONDS, 1.8 * median(self._normal_waits))
+            if len(self._normal_waits) >= 3 else 5.0
+        )
+        if seconds >= threshold:
+            return True
+        if seconds >= 0.05:
+            self._normal_waits.append(seconds)
+        return False
 PHASES = ("startup", "playback")
 OUTCOMES = ("recovered", "ended")
 HLS_EVENTS = (
@@ -60,7 +91,7 @@ def _execute(redis_client, key, increments, values=None):
 
 
 def record_starvation(redis_client, channel_id, fmt, seconds, phase, outcome, *, keepalives=0):
-    """Count one client-visible server data gap after it closes or ends."""
+    """Count one caller-qualified server data gap after it closes or ends."""
     try:
         seconds = float(seconds)
     except (TypeError, ValueError):

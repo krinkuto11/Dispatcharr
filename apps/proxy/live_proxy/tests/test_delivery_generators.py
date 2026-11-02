@@ -6,6 +6,7 @@ from django.test import SimpleTestCase
 
 from apps.proxy.live_proxy.output.fmp4.generator import FMP4StreamGenerator
 from apps.proxy.live_proxy.output.ts.generator import StreamGenerator
+from apps.proxy.live_proxy.delivery_diagnostics import DeliveryGapTracker
 
 
 class DeliveryGeneratorTests(SimpleTestCase):
@@ -16,16 +17,17 @@ class DeliveryGeneratorTests(SimpleTestCase):
         generator.chunks_sent = 4
         generator._delivery_wait_started = None
         generator._delivery_wait_keepalives = 0
+        generator._delivery_gap_tracker = DeliveryGapTracker()
         generator.proxy_server = MagicMock()
 
-        with patch("apps.proxy.live_proxy.output.ts.generator.time.monotonic", side_effect=[10.0, 13.0]), \
+        with patch("apps.proxy.live_proxy.output.ts.generator.time.monotonic", side_effect=[10.0, 16.0]), \
              patch("apps.proxy.live_proxy.output.ts.generator.record_starvation") as record:
             generator._start_delivery_wait()
             generator._finish_delivery_wait("recovered")
 
         record.assert_called_once_with(
             generator.proxy_server.redis_client, "channel", "mpegts:p2",
-            3.0, "playback", "recovered", keepalives=0,
+            6.0, "playback", "recovered", keepalives=0,
         )
 
     def test_fmp4_missing_fragments_are_counted_before_wait(self):

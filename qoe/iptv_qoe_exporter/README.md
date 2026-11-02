@@ -39,8 +39,8 @@ The release/fork plan is in [`qoe/README.md`](../README.md).
   output-profile replacements, unexpected output reader/process stops and
   input chunks skipped by the output-profile writer. It stores counters and
   fixed categories in Redis, never raw stderr.
-- The QoE fork records server delivery gaps of at least two seconds by
-  startup/playback phase and recovery outcome, TS/fMP4 chunks skipped after
+- The QoE fork records server delivery gaps above learned chunk cadence (at
+  least two seconds) by startup/playback phase and recovery outcome, TS/fMP4 chunks skipped after
   buffer expiry, HLS errors and segment publication gaps. Episodes are counted
   when they recover or the connection ends; the server still cannot see the
   spectator player's own buffer.

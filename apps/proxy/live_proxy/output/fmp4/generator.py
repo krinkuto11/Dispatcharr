@@ -13,7 +13,7 @@ from core.utils import log_system_event
 from django.db import close_old_connections
 from ...server import ProxyServer
 from ...redis_keys import RedisKeys
-from ...delivery_diagnostics import record_skipped_chunks, record_starvation
+from ...delivery_diagnostics import DeliveryGapTracker, record_skipped_chunks, record_starvation
 from ...constants import ChannelMetadataField
 from ..buffer import OutputStreamBuffer
 from .manager import FMP4_STATE_ACTIVE, INIT_SEGMENT_TIMEOUT
@@ -76,6 +76,7 @@ class FMP4StreamGenerator:
         self.consecutive_empty = 0
         self._delivery_wait_started = None
         self._delivery_wait_phase = "startup"
+        self._delivery_gap_tracker = DeliveryGapTracker()
 
         self._last_resource_check_time = 0.0
         self._resource_check_interval = 1.0
@@ -147,6 +148,8 @@ class FMP4StreamGenerator:
             return
         duration = time.monotonic() - self._delivery_wait_started
         self._delivery_wait_started = None
+        if not self._delivery_gap_tracker.is_anomalous(duration):
+            return
         proxy_server = self.proxy_server or ProxyServer.get_instance()
         record_starvation(
             proxy_server.redis_client if proxy_server else None,

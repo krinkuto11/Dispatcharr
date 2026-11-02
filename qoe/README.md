@@ -10,8 +10,9 @@ the output-profile/HLS discontinuity work absent from stable `v0.33.0`.
 
 - Bounded FFmpeg input/output stderr categories, output-profile process
   replacements, unexpected stops and chunks skipped by its input writer.
-- Server-side delivery gaps of at least two seconds, separated into startup
-  and playback, and chunks skipped by TS/fMP4 clients after buffer expiry.
+- Server-side delivery gaps above normal chunk cadence (with a two-second
+  floor), separated into startup and playback, and chunks skipped by TS/fMP4
+  clients after buffer expiry.
 - HLS stale/malformed/cold-start failures, expired segments, segments still
   advertised but missing, and segment publication cadence. Successful
   steady-state HLS requests do not add Redis writes.

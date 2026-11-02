@@ -54,9 +54,9 @@ TIME_CONTROL_PROFILE = "OpenStream TimeControl"
 PROGRESS_DIR = Path("/tmp")
 PROGRESS_FILE_RE = re.compile(r"^omts_(.+)\.prog$")
 OUTPUT_STATE_RE = re.compile(r":p(\d+):state$")
-OUTPUT_DIAGNOSTICS_RE = re.compile(r"^live:channel:([^:]+):output:mpegts:p(\d+):diagnostics$")
+OUTPUT_DIAGNOSTICS_RE = re.compile(r"^qoe:channel:([^:]+):output:mpegts:p(\d+):diagnostics$")
 OUTPUT_DELIVERY_RE = re.compile(
-    r"^live:channel:([^:]+):output:((?:mpegts|hls|fmp4)(?::p\d+)?):delivery:diagnostics$"
+    r"^qoe:channel:([^:]+):output:((?:mpegts|hls|fmp4)(?::p\d+)?):delivery:diagnostics$"
 )
 FFMPEG_ERROR_TYPES = (
     "continuity_error",
@@ -434,7 +434,7 @@ class Plugin:
         from apps.proxy.live_proxy.redis_keys import RedisKeys
 
         diagnostics = {}
-        pattern = f"live:channel:{channel_uuid}:output:mpegts:p*:diagnostics"
+        pattern = f"qoe:channel:{channel_uuid}:output:mpegts:p*:diagnostics"
         for key in redis_client.scan_iter(match=pattern, count=100):
             match = OUTPUT_DIAGNOSTICS_RE.match(_text(key))
             if not match or _channel_uuid(match.group(1)) != channel_uuid:
@@ -449,7 +449,7 @@ class Plugin:
         from apps.proxy.live_proxy.redis_keys import RedisKeys
 
         diagnostics = {}
-        pattern = f"live:channel:{channel_uuid}:output:*:delivery:diagnostics"
+        pattern = f"qoe:channel:{channel_uuid}:output:*:delivery:diagnostics"
         for key in redis_client.scan_iter(match=pattern, count=100):
             match = OUTPUT_DELIVERY_RE.match(_text(key))
             if not match or _channel_uuid(match.group(1)) != channel_uuid:
@@ -1003,8 +1003,8 @@ class Plugin:
                 "dispatcharr_qoe_output_profile_ffmpeg_unexpected_stops_total": ("counter", "Unplanned output FFmpeg reader/process stops by bounded cause."),
                 "dispatcharr_qoe_output_profile_ffmpeg_last_stop_timestamp_seconds": ("gauge", "Unix timestamp of the latest unplanned output FFmpeg stop."),
                 "dispatcharr_qoe_output_profile_writer_skipped_chunks_total": ("counter", "Input buffer chunks skipped by the output profile writer after falling behind."),
-                "dispatcharr_qoe_delivery_starvation_episodes_total": ("counter", "Server delivery gaps of at least two seconds, by startup/playback phase and recovery outcome."),
-                "dispatcharr_qoe_delivery_starvation_seconds_total": ("counter", "Total server delivery gap duration from closed episodes of at least two seconds."),
+                "dispatcharr_qoe_delivery_starvation_episodes_total": ("counter", "Server delivery gaps above learned chunk cadence with a two-second floor, by phase and outcome."),
+                "dispatcharr_qoe_delivery_starvation_seconds_total": ("counter", "Total duration of closed anomalous server delivery gaps."),
                 "dispatcharr_qoe_delivery_skipped_chunks_total": ("counter", "Chunks skipped by a TS or fMP4 client after buffer expiry."),
                 "dispatcharr_qoe_delivery_keepalive_packets_total": ("counter", "TS keepalive packets emitted during completed server delivery gaps."),
                 "dispatcharr_qoe_delivery_last_starvation_timestamp_seconds": ("gauge", "Unix timestamp of latest completed server delivery gap."),

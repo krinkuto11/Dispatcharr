@@ -16,8 +16,8 @@ SPEC.loader.exec_module(PLUGIN)
 class _Redis:
     def scan_iter(self, match, count):
         return [
-            b"live:channel:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:output:hls:p2:delivery:diagnostics",
-            b"live:channel:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:output:token:delivery:diagnostics",
+            b"qoe:channel:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:output:hls:p2:delivery:diagnostics",
+            b"qoe:channel:aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee:output:token:delivery:diagnostics",
         ]
 
     def hgetall(self, key):

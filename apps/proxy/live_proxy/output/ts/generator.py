@@ -13,7 +13,7 @@ from ...utils import create_ts_packet, get_logger, resolve_channel_display_name
 from ...redis_keys import RedisKeys
 from ...constants import ChannelMetadataField
 from ...config_helper import ConfigHelper
-from ...delivery_diagnostics import record_skipped_chunks, record_starvation
+from ...delivery_diagnostics import DeliveryGapTracker, record_skipped_chunks, record_starvation
 
 logger = get_logger()
 
@@ -61,6 +61,7 @@ class StreamGenerator:
         self._delivery_wait_started = None
         self._delivery_wait_phase = "startup"
         self._delivery_wait_keepalives = 0
+        self._delivery_gap_tracker = DeliveryGapTracker()
 
         # Performance and state tracking
         self.stream_start_time = time.time()
@@ -163,6 +164,8 @@ class StreamGenerator:
             return
         duration = time.monotonic() - self._delivery_wait_started
         self._delivery_wait_started = None
+        if not self._delivery_gap_tracker.is_anomalous(duration):
+            return
         proxy_server = self.proxy_server or ProxyServer.get_instance()
         record_starvation(
             proxy_server.redis_client if proxy_server else None,

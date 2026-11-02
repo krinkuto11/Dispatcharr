@@ -1,8 +1,10 @@
 """Tests for bounded, event-based live delivery metrics."""
 
+import fnmatch
 import unittest
 
 from apps.proxy.live_proxy.delivery_diagnostics import (
+    DeliveryGapTracker,
     record_hls_event,
     record_hls_segment,
     record_skipped_chunks,
@@ -43,6 +45,20 @@ class _Redis:
 
 
 class DeliveryDiagnosticsTests(unittest.TestCase):
+    def test_normal_low_bitrate_chunk_cadence_is_not_starvation(self):
+        tracker = DeliveryGapTracker()
+        self.assertEqual([tracker.is_anomalous(2.5) for _ in range(4)], [False] * 4)
+        self.assertTrue(tracker.is_anomalous(6.5))
+        self.assertFalse(tracker.is_anomalous(2.5))
+
+    def test_diagnostic_keys_survive_live_channel_cleanup_pattern(self):
+        for key in (
+            RedisKeys.input_ffmpeg_diagnostics("channel"),
+            RedisKeys.output_ffmpeg_diagnostics("channel", 2),
+            RedisKeys.output_delivery_diagnostics("channel", "mpegts"),
+        ):
+            self.assertFalse(fnmatch.fnmatch(key, "live:channel:channel:*"))
+
     def test_short_wait_is_ignored_and_long_wait_is_counted_by_phase(self):
         redis = _Redis()
         key = RedisKeys.output_delivery_diagnostics("channel", "mpegts:p2")
