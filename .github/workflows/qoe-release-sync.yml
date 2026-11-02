@@ -1,0 +1,94 @@
+name: Sync upstream release for QoE fork
+
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: qoe-release-sync
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Read latest published stable release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(gh api repos/Dispatcharr/Dispatcharr/releases/latest --jq '.tag_name')
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Check whether this release already has an open PR
+        id: pending
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          if gh pr list --state open --head "qoe-upstream-$RELEASE_TAG" --json number --jq 'length' | grep -qx 1; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Prepare candidate merge
+        id: sync
+        if: steps.pending.outputs.exists != 'true'
+        env:
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git remote add upstream https://github.com/Dispatcharr/Dispatcharr.git
+          python scripts/qoe_release_sync.py "$RELEASE_TAG"
+      - name: Compile Python and test container build
+        if: steps.sync.outputs.status == 'updated'
+        run: |
+          python -m compileall -q apps/proxy/live_proxy apps/plugins scripts/qoe_release_sync.py
+          python -m unittest apps.proxy.live_proxy.tests.test_ffmpeg_diagnostics
+          docker build --file docker/Dockerfile \
+            --build-arg REPO_OWNER=dispatcharr \
+            --build-arg REPO_NAME=dispatcharr \
+            --build-arg BASE_TAG=base \
+            --tag dispatcharr-qoe-candidate:${{ steps.sync.outputs.release_tag }} .
+      - name: Open review pull request
+        if: steps.sync.outputs.status == 'updated'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE: ${{ steps.sync.outputs.candidate_branch }}
+          RELEASE_TAG: ${{ steps.sync.outputs.release_tag }}
+          BASE_BRANCH: ${{ github.ref_name }}
+        run: |
+          git push origin "HEAD:refs/heads/$CANDIDATE"
+          gh pr create --base "$BASE_BRANCH" --head "$CANDIDATE" \
+            --title "Sync Dispatcharr $RELEASE_TAG into QoE fork" \
+            --body "Published upstream release: $RELEASE_TAG. Python compilation and a container build passed. Review QoE-specific diff and run stream/player smoke tests before merge. Production image promotion is separate."
+      - name: Report failed candidate checks
+        if: failure() && steps.sync.outputs.status == 'updated'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.sync.outputs.release_tag }}
+        run: |
+          title="QoE fork candidate checks failed: $RELEASE_TAG"
+          if ! gh issue list --state open --search "in:title $title" --json title --jq '.[].title' | grep -Fxq "$title"; then
+            gh issue create --title "$title" \
+              --body "The candidate failed compilation, container build, push, or PR creation. Inspect the workflow logs; the QoE base branch was not changed."
+          fi
+      - name: Report conflict or incompatible base
+        if: steps.sync.outputs.status == 'conflict' || steps.sync.outputs.status == 'blocked'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.sync.outputs.release_tag }}
+          SYNC_STATUS: ${{ steps.sync.outputs.status }}
+        run: |
+          title="QoE fork sync needs attention: $RELEASE_TAG"
+          if ! gh issue list --state open --search "in:title $title" --json title --jq '.[].title' | grep -Fxq "$title"; then
+            gh issue create --title "$title" \
+              --body "Automatic sync status: $SYNC_STATUS. Inspect the workflow logs, resolve the base/merge problem, and rerun the workflow. Production remains on its pinned image."
+          fi

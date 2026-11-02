@@ -1041,6 +1041,7 @@ def stream_ts(
                 user=user,
                 buffer=source_buffer,
                 channel_name=channel_display_name,
+                fmt=resolved_format,
             )
             content_type = "video/mp2t"
 

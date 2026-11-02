@@ -147,6 +147,7 @@ class StreamManager:
         # Track stream command for efficient log parser routing
         self.stream_command = None
         self.parser_type = None  # Will be set when transcode process starts
+        self.ffmpeg_diagnostics_enabled = False
 
         # Add tracking for data throughput
         self.bytes_processed = 0
@@ -843,6 +844,19 @@ class StreamManager:
                     'streamlink': 'streamlink'
                 }
                 self.parser_type = command_to_parser.get(self.stream_command.lower())
+                self.ffmpeg_diagnostics_enabled = (
+                    self.parser_type == "ffmpeg"
+                    or any("ffmpeg" in str(arg).lower() for arg in self.transcode_cmd)
+                )
+                if self.ffmpeg_diagnostics_enabled:
+                    from ..ffmpeg_diagnostics import initialize_ffmpeg_diagnostics
+
+                    initialize_ffmpeg_diagnostics(
+                        self.buffer.redis_client,
+                        RedisKeys.input_ffmpeg_diagnostics(self.channel_id),
+                        reset=False,
+                        ttl=3600,
+                    )
                 if self.parser_type:
                     logger.debug(f"Using {self.parser_type} parser for log parsing (command: {self.stream_command})")
                 else:
@@ -1079,6 +1093,15 @@ class StreamManager:
             if not content:
                 return
 
+            if self.ffmpeg_diagnostics_enabled:
+                from ..ffmpeg_diagnostics import record_ffmpeg_error
+
+                record_ffmpeg_error(
+                    self.buffer.redis_client,
+                    RedisKeys.input_ffmpeg_diagnostics(self.channel_id),
+                    content,
+                )
+
             # Convert to lowercase for easier matching
             content_lower = content.lower()
             # Check if we are still in the input phase
@@ -1146,6 +1169,16 @@ class StreamManager:
     def _parse_ffmpeg_stats(self, stats_line):
         """Parse FFmpeg stats line and extract speed, fps, and bitrate"""
         try:
+            if self.ffmpeg_diagnostics_enabled:
+                from ..ffmpeg_diagnostics import parse_ffmpeg_stats_line, record_ffmpeg_stats
+
+                record_ffmpeg_stats(
+                    self.buffer.redis_client,
+                    RedisKeys.input_ffmpeg_diagnostics(self.channel_id),
+                    parse_ffmpeg_stats_line(stats_line),
+                    ttl=3600,
+                )
+
             # Example FFmpeg stats line:
             # frame= 1234 fps= 30 q=28.0 size=    2048kB time=00:00:41.33 bitrate= 406.1kbits/s speed=1.02x
 

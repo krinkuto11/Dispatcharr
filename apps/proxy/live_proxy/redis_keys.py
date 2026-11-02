@@ -10,6 +10,11 @@ class RedisKeys:
         return f"live:channel:{channel_id}:metadata"
 
     @staticmethod
+    def input_ffmpeg_diagnostics(channel_id):
+        """Aggregate FFmpeg diagnostics for the channel's current input session."""
+        return f"live:channel:{channel_id}:input:ffmpeg:diagnostics"
+
+    @staticmethod
     def buffer_index(channel_id):
         """Key for tracking input buffer index"""
         return f"live:channel:{channel_id}:input:buffer:index"
@@ -127,6 +132,16 @@ class RedisKeys:
     def output_state(channel_id, fmt):
         """Remux/transcode manager state for this output format."""
         return f"live:channel:{channel_id}:output:{fmt}:state"
+
+    @staticmethod
+    def output_ffmpeg_diagnostics(channel_id, profile_id):
+        """Aggregate diagnostics for an output-profile FFmpeg process."""
+        return f"live:channel:{channel_id}:output:mpegts:p{profile_id}:diagnostics"
+
+    @staticmethod
+    def output_delivery_diagnostics(channel_id, fmt):
+        """Aggregate delivery diagnostics for an output format and profile."""
+        return f"live:channel:{channel_id}:output:{fmt}:delivery:diagnostics"
 
     @staticmethod
     def output_owner(channel_id, fmt):

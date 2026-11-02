@@ -13,6 +13,7 @@ from ...utils import create_ts_packet, get_logger, resolve_channel_display_name
 from ...redis_keys import RedisKeys
 from ...constants import ChannelMetadataField
 from ...config_helper import ConfigHelper
+from ...delivery_diagnostics import record_skipped_chunks, record_starvation
 
 logger = get_logger()
 
@@ -32,6 +33,7 @@ class StreamGenerator:
         user=None,
         buffer=None,
         channel_name=None,
+        fmt='mpegts',
     ):
         """
         Initialize the stream generator with client and channel details.
@@ -55,6 +57,10 @@ class StreamGenerator:
         self.user = user
         self._source_buffer = buffer
         self.channel_name = resolve_channel_display_name(channel_id, channel_name=channel_name)
+        self.fmt = fmt
+        self._delivery_wait_started = None
+        self._delivery_wait_phase = "startup"
+        self._delivery_wait_keepalives = 0
 
         # Performance and state tracking
         self.stream_start_time = time.time()
@@ -143,7 +149,26 @@ class StreamGenerator:
         except Exception as e:
             logger.error(f"[{self.client_id}] Stream error: {e}", exc_info=True)
         finally:
+            self._finish_delivery_wait("ended")
             self._cleanup()
+
+    def _start_delivery_wait(self):
+        if self._delivery_wait_started is None:
+            self._delivery_wait_started = time.monotonic()
+            self._delivery_wait_phase = "playback" if self.chunks_sent else "startup"
+            self._delivery_wait_keepalives = 0
+
+    def _finish_delivery_wait(self, outcome):
+        if self._delivery_wait_started is None:
+            return
+        duration = time.monotonic() - self._delivery_wait_started
+        self._delivery_wait_started = None
+        proxy_server = self.proxy_server or ProxyServer.get_instance()
+        record_starvation(
+            proxy_server.redis_client if proxy_server else None,
+            self.channel_id, self.fmt, duration, self._delivery_wait_phase,
+            outcome, keepalives=self._delivery_wait_keepalives,
+        )
 
     def _init_wait_abort_reason(self, proxy_server, initialization_start):
         """Return a reason string when init wait should end early, else None."""
@@ -322,6 +347,7 @@ class StreamGenerator:
             chunks, next_index = self.buffer.get_optimized_client_data(self.local_index)
 
             if chunks:
+                self._finish_delivery_wait("recovered")
                 keepalive_start_time = None  # Each recovery restarts the cap independently.
                 yield from self._process_chunks(chunks, next_index)
                 self.local_index = next_index
@@ -329,6 +355,7 @@ class StreamGenerator:
                 self.empty_reads = 0
                 self.consecutive_empty = 0
             else:
+                self._start_delivery_wait()
                 # Handle no data condition (with possible keepalive packets)
                 self.empty_reads += 1
                 self.consecutive_empty += 1
@@ -348,6 +375,10 @@ class StreamGenerator:
                             f"jumping to oldest available: {new_index + 1} "
                             f"(skipped {skipped} chunks, buffer head at {self.buffer.index})"
                         )
+                        record_skipped_chunks(
+                            self.proxy_server.redis_client if self.proxy_server else None,
+                            self.channel_id, self.fmt, skipped,
+                        )
                         self.local_index = new_index
                     else:
                         # No chunks available at all — jump to near the buffer head
@@ -357,6 +388,10 @@ class StreamGenerator:
                             f"[{self.client_id}] No chunks available in buffer, "
                             f"jumping to near buffer head: {new_index} "
                             f"(buffer head at {self.buffer.index})"
+                        )
+                        record_skipped_chunks(
+                            self.proxy_server.redis_client if self.proxy_server else None,
+                            self.channel_id, self.fmt, new_index - self.local_index,
                         )
                         self.local_index = new_index
 
@@ -379,6 +414,7 @@ class StreamGenerator:
                     logger.debug(f"[{self.client_id}] Sending keepalive packet while waiting at buffer head")
                     yield keepalive_packet
                     self.bytes_sent += len(keepalive_packet)
+                    self._delivery_wait_keepalives += 1
                     self.last_yield_time = time.time()
                     self.consecutive_empty = 0  # Reset consecutive counter but keep total empty_reads
                     # Update last_active so clients waiting during failover aren't flagged as ghosts
@@ -662,6 +698,7 @@ def create_stream_generator(
     user=None,
     buffer=None,
     channel_name=None,
+    fmt='mpegts',
 ):
     """
     Factory function to create a new stream generator.
@@ -676,5 +713,6 @@ def create_stream_generator(
         user=user,
         buffer=buffer,
         channel_name=channel_name,
+        fmt=fmt,
     )
     return generator.generate
