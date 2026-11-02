@@ -48,6 +48,9 @@ jobs:
   images:
     needs: qoe-tests
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
       - name: Build Dispatcharr fork image
@@ -57,5 +60,24 @@ jobs:
             --build-arg REPO_NAME=dispatcharr \
             --build-arg BASE_TAG=base \
             --tag dispatcharr-qoe-ci:${{ github.sha }} .
+      - name: Log in to GHCR for branch builds
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish immutable branch image
+        if: github.event_name == 'push'
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/dispatcharr-qoe:dev-${{ github.sha }}"
+          docker tag "dispatcharr-qoe-ci:${{ github.sha }}" "$image"
+          docker push "$image"
       - name: Build decoder probe image
         run: docker build --file qoe/probe/Dockerfile --tag dispatcharr-qoe-probe-ci:${{ github.sha }} qoe/probe
+      - name: Publish immutable decoder image
+        if: github.event_name == 'push'
+        run: |
+          image="ghcr.io/${{ github.repository_owner }}/dispatcharr-qoe-probe:dev-${{ github.sha }}"
+          docker tag "dispatcharr-qoe-probe-ci:${{ github.sha }}" "$image"
+          docker push "$image"
