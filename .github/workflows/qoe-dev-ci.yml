@@ -59,7 +59,12 @@ jobs:
             --build-arg REPO_OWNER=dispatcharr \
             --build-arg REPO_NAME=dispatcharr \
             --build-arg BASE_TAG=base \
+            --build-arg TIMESTAMP="$(git show -s --format=%cI HEAD)" \
             --tag dispatcharr-qoe-ci:${{ github.sha }} .
+      - name: Verify plugin v2 compatibility in built image
+        run: |
+          docker run --rm --entrypoint python "dispatcharr-qoe-ci:${{ github.sha }}" -c \
+            'from version import __version__, __timestamp__; from apps.plugins.capabilities import manifest_version_supported; assert manifest_version_supported(2, __version__, is_dev_build=__timestamp__ is not None), (__version__, __timestamp__)'
       - name: Log in to GHCR for branch builds
         if: github.event_name == 'push'
         uses: docker/login-action@v3
